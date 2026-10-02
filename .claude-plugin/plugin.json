@@ -1,0 +1,92 @@
+{
+  "name": "realms",
+  "displayName": "Realms",
+  "version": "0.1.0",
+  "description": "Private Linux desktops for Claude: test GUI apps in a headless labwc realm or an Omarchy VM, and watch them live in a pane",
+  "author": {
+    "name": "Zeus-Deus",
+    "url": "https://github.com/Zeus-Deus"
+  },
+  "homepage": "https://github.com/Zeus-Deus/claude-realms",
+  "repository": "https://github.com/Zeus-Deus/claude-realms",
+  "license": "MIT",
+  "keywords": [
+    "realm",
+    "desktop",
+    "computer-use",
+    "gui-testing",
+    "wayland",
+    "labwc",
+    "omarchy",
+    "vm",
+    "mod"
+  ],
+  "userConfig": {
+    "auto_view": {
+      "type": "boolean",
+      "title": "Show the realm when it starts",
+      "description": "Open the Realm pane the first time the agent starts a desktop in a session",
+      "default": true
+    },
+    "view_mode": {
+      "type": "string",
+      "title": "Live view",
+      "description": "auto draws pixels where the terminal can (Ghostty, kitty) and coloured cells elsewhere",
+      "options": [
+        "auto",
+        "image",
+        "raster"
+      ],
+      "default": "auto"
+    },
+    "view_fps": {
+      "type": "number",
+      "title": "Live view frames per second",
+      "description": "Frames per second of the Realm pane (1 to 30)",
+      "default": 10
+    },
+    "host_guard": {
+      "type": "boolean",
+      "title": "Guard the host desktop",
+      "description": "While a realm is live, refuse Bash commands that point GUI tools at your own display",
+      "default": true
+    },
+    "full_view": {
+      "type": "string",
+      "title": "Full view opens in",
+      "description": "auto uses a Codemux browser pane inside Codemux, your default browser elsewhere",
+      "options": [
+        "auto",
+        "codemux",
+        "browser"
+      ],
+      "default": "auto"
+    },
+    "view_cell_aspect": {
+      "type": "number",
+      "title": "Terminal cell shape",
+      "description": "Height / width of a text cell, so the live view keeps its shape; 0 picks it for your terminal",
+      "default": 0
+    },
+    "view_in": {
+      "type": "string",
+      "title": "Watch the realm in",
+      "description": "auto: a Codemux browser pane inside Codemux (its terminal shows no pictures), the terminal pane elsewhere",
+      "options": [
+        "auto",
+        "pane",
+        "browser"
+      ],
+      "default": "auto"
+    }
+  },
+  "mcpServers": {
+    "realms": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/realms-mcp",
+      "args": [],
+      "env": {
+        "REALMS_HOME": "${CLAUDE_PLUGIN_DATA}"
+      }
+    }
+  }
+}

@@ -1,0 +1,55 @@
+name: test
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Nightly canary: the realm stack against the newest upstream driver, so a
+    # breaking cua-driver release shows up here before it reaches anyone.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the test rig
+        run: docker build -t claude-realms-rig:latest test/docker
+      - name: Prepare caches
+        run: |
+          docker volume create crr-uv-cache
+          docker run --rm -v crr-uv-cache:/v alpine:3 chown 1000:1000 /v
+      - name: Unit and core tests
+        run: test/docker/run.sh -- bash -lc 'cd /plugin && uv sync --frozen -q && cd /tmp && /home/tester/venv/bin/python -m pytest -p no:cacheprovider -q -c /plugin/pyproject.toml --rootdir /plugin /plugin/tests/core /plugin/tests/claude'
+      - name: Integration (real desktops, current stable driver)
+        if: github.event_name != 'schedule'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: test/docker/run.sh --env GITHUB_TOKEN -- bash -lc 'cd /plugin && uv sync --frozen -q && cd /tmp && /home/tester/venv/bin/python -m pytest -p no:cacheprovider -q -c /plugin/pyproject.toml --rootdir /plugin -m integration /plugin/tests/integration'
+      - name: Canary (real desktops, newest driver release)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          test/docker/run.sh --env GITHUB_TOKEN -- bash -lc '
+            mkdir -p /home/tester/realms-data &&
+            echo "{\"driver\": {\"channel\": \"latest\"}}" > /home/tester/realms-data/config.json &&
+            cd /plugin && uv sync --frozen -q && cd /tmp &&
+            /home/tester/venv/bin/python -m pytest -p no:cacheprovider -q -c /plugin/pyproject.toml --rootdir /plugin -m integration /plugin/tests/integration'
+
+  mod:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Validate the plugin
+        run: |
+          claude plugin validate .
+          claude plugin validate .claude-plugin/plugin.json
+      - name: Mod tests
+        run: claude plugin test .

@@ -1,0 +1,6 @@
+{
+  "name": "realms",
+  "description": "Private Linux desktops for Claude Code",
+  "owner": { "name": "Zeus-Deus" },
+  "plugins": [{ "name": "realms", "source": "./" }]
+}

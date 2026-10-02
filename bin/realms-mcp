@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Start the claude-realms MCP server from a uv-managed environment kept in the
+# plugin's data directory (never inside the plugin folder, which may be a
+# read-only cache). uv resolves exactly the locked dependencies.
+set -euo pipefail
+root="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+fallback="${XDG_DATA_HOME:-$HOME/.local/share}/claude-realms"
+data="${REALMS_HOME:-${CLAUDE_PLUGIN_DATA:-$fallback}}"
+case "$data" in *'${'*|'') data="$fallback" ;; esac
+export REALMS_HOME="$data"
+mkdir -p "$data" && chmod 700 "$data"
+if ! command -v uv >/dev/null 2>&1; then
+  echo "claude-realms needs uv to set up its Python environment: https://docs.astral.sh/uv/" >&2
+  exit 1
+fi
+export UV_PROJECT_ENVIRONMENT="$data/venv"
+exec uv run --project "$root" --frozen --no-dev --quiet python -P -m claude_realms.server

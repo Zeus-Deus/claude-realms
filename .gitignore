@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.claude-plugin/types/
+node_modules/
+/test/artifacts/
+.codemux/
+.claude/settings.local.json
