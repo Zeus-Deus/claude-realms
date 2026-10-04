@@ -11,6 +11,7 @@ import logging
 import os
 import signal
 import sys
+import time
 
 import anyio
 from mcp import types
@@ -190,7 +191,9 @@ class RealmServer:
             if name in self.offered:
                 return await self.forward(name, arguments, service)
             return error("Unknown tool " + name)
-        except (SetupRequired, RealmOff) as exc:
+        except SetupRequired as exc:
+            return error(self._setup_refusal(str(exc)))
+        except RealmOff as exc:
             return error(str(exc))
         except (RealmError, DriverUnavailable, ValueError, OSError) as exc:
             return error(type(exc).__name__ + ": " + str(exc))
@@ -216,25 +219,83 @@ class RealmServer:
             return await session.call(upstream, arguments)
 
     async def _auto_setup(self, service):
-        """First use: install the verified driver (no root) instead of refusing."""
+        """First use: set up what needs no root (the verified driver, the Omarchy
+        base image) instead of refusing. Packages, KVM and keys stay the person's."""
         from realms_core.install_driver import current_driver
+        from realms_core.setup_plan import base_present
 
-        if not self.settings.auto_setup or current_driver(self.home) is not None:
+        if not self.settings.auto_setup:
+            return
+        need_driver = current_driver(self.home) is None
+        need_base = service.kind == "omarchy-vm" and not base_present(self.home)
+        if not need_driver and not need_base:
             return
         status = await anyio.to_thread.run_sync(service.setup_status)
-        if status["missing"] or status["blockers"] or any("driver" not in step for step in status["steps"]):
+        if status["missing"] or status["blockers"]:
             return  # something only the person can provide; the call reports it
-        from realms_core import install_driver
+        if need_driver:
+            from realms_core import install_driver
 
-        job = self.jobs.get("driver")
-        if job is None or job["state"] != "running":
-            job = self.jobs.start("driver", lambda progress: install_driver.install(
-                self.home, service.config, progress=progress))
-        while job["state"] == "running":
-            await anyio.sleep(0.2)
-        if job["state"] == "done":
-            service._note("installed the computer-use driver " + job["result"]["version"])
-            await self.refresh_catalog()
+            job = self.jobs.get("driver")
+            if job is None or job["state"] != "running":
+                job = self.jobs.start("driver", lambda progress: install_driver.install(
+                    self.home, service.config, progress=progress))
+            while job["state"] == "running":
+                await anyio.sleep(0.2)
+            if job["state"] == "done":
+                service._note("installed the computer-use driver " + job["result"]["version"])
+                await self.refresh_catalog()
+        if need_base:
+            job, reused = self._start_base(service)
+            # Reusing a hermes-realms base is a local copy (a reflink where the
+            # filesystem has them): wait for it. A fresh build takes long; the
+            # refusal that follows says it is under way.
+            deadline = anyio.current_time() + 600
+            while reused and job["state"] == "running" and anyio.current_time() < deadline:
+                await anyio.sleep(0.5)
+
+    def _start_base(self, service):
+        """Start (or join) the Omarchy base job; returns (job, hermes base reused)."""
+        from .service import hermes_bases, import_base
+
+        job = self.jobs.get("omarchy-base")
+        if job is not None and job["state"] == "running":
+            return job, job.get("reused")
+        bases = hermes_bases()
+        if bases:
+            source = bases[0]["path"]
+            job = self.jobs.start("omarchy-base", lambda progress: import_base(service, source, progress))
+            job["reused"] = source
+        else:
+            log_path = self.home / "realms" / "logs" / "omarchy-base-install.log"
+
+            def base(progress):
+                log_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                progress("downloading the signed Omarchy ISO (~5 GB) and installing the base image; log: "
+                         + str(log_path))
+                with log_path.open("w") as log:
+                    os.chmod(log_path, 0o600)
+                    return service.vm.install_base(stdout=log)
+
+            job = self.jobs.start("omarchy-base", base)
+            job["reused"] = None
+        return job, job["reused"]
+
+    def _setup_refusal(self, message):
+        """A setup refusal, told as progress when the agent's own job is building it."""
+        job = self.jobs.get("omarchy-base")
+        if job is None or "base image" not in message:
+            return message
+        if job["state"] == "running":
+            what = ("copying the Omarchy base hermes-realms built (" + job["reused"] + ")" if job.get("reused")
+                    else "downloading the signed Omarchy ISO (~5 GB) and installing the base image")
+            minutes = int((time.time() - job["started_at"]) // 60)
+            return (f"The Omarchy base image is being set up now ({what}; {minutes} min so far). "
+                    "Nothing is needed from the person. Check with realm action 'status' and try again "
+                    "when the omarchy-base job is done.")
+        if job["state"] == "failed":
+            return "Setting up the Omarchy base image failed: " + job.get("error", "unknown error")
+        return message
 
     async def realm(self, arguments, *, person=False):
         from .service import clean, delete, human_bytes, inventory
@@ -276,11 +337,11 @@ class RealmServer:
                          f"{human_bytes(result['freed_bytes'])}."
                          + (f" Kept {len(result['kept'])} that could not be deleted." if result["kept"] else "")),
                     text(result)]
+        if action == "on" and arguments.get("kind"):
+            await run(service.select, arguments["kind"])
         if action in ("on", "shot", "launch", "watch", "size"):
             await self._auto_setup(service)
         if action == "on":
-            if arguments.get("kind"):
-                await run(service.select, arguments["kind"])
             service.enabled = True
             record = await run(service.ensure)
             return [text(f"{service.kind} {record['id']} is live."),
@@ -350,28 +411,13 @@ class RealmServer:
 
             self.jobs.start("driver", install)
             started.append("driver")
-        from .service import hermes_bases, import_base
-
-        bases = hermes_bases() if kind == "omarchy-vm" else []
-        if kind == "omarchy-vm" and bases and any("base image" in step for step in status["steps"]):
-            source = bases[0]["path"]
-            self.jobs.start("omarchy-base", lambda progress: import_base(self.service, source, progress))
-            started.append("omarchy-base (reusing the base hermes-realms built: " + source + ")")
-        elif kind == "omarchy-vm" and any("base image" in step for step in status["steps"]) \
+        if kind == "omarchy-vm" and any("base image" in step for step in status["steps"]) \
                 and not status["blockers"] and not status["missing"]:
-            log_path = self.home / "realms" / "logs" / "omarchy-base-install.log"
-
-            def base(progress):
-                log_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                progress("installing the Omarchy base image; log: " + str(log_path))
-                with log_path.open("w") as log:
-                    os.chmod(log_path, 0o600)
-                    return self.service.vm.install_base(stdout=log)
-
-            self.jobs.start("omarchy-base", base)
-            started.append("omarchy-base")
-        if started:
-            self._after_jobs([name.split(" ")[0] for name in started])
+            _, reused = self._start_base(self.service)
+            started.append("omarchy-base (reusing the base hermes-realms built: " + reused + ")" if reused
+                           else "omarchy-base (downloading the signed ISO, ~5 GB)")
+        if "driver" in started:
+            self._after_jobs(["driver"])
         return [text(status["message"] if not started else
                      "Started: " + ", ".join(started) + ". Check progress with /realm status."),
                 text({"setup": status, "started": started})]

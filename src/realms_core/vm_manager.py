@@ -600,8 +600,8 @@ class VmManager:
             base_disk = self.base_home() / "disk.qcow2"
             if not self.base_status()["present"]:
                 raise VmError(
-                    "No Omarchy base image yet. Build one explicitly with "
-                    "/realm setup omarchy (downloads the signed ISO, ~5 GB, then "
+                    "No Omarchy base image yet. Build one with realm action "
+                    "'setup' or /realm setup omarchy (downloads the signed ISO, ~5 GB, then "
                     "installs unattended); host fallback is disabled."
                 )
 

@@ -141,3 +141,43 @@ def test_hermes_base_is_found_and_imported(tmp_path, monkeypatch):
     assert import_base(service, found[0]["path"])["imported"] is True
     assert base_present(home)
     assert import_base(service, found[0]["path"])["imported"] is False
+
+
+def test_first_omarchy_use_sets_up_the_base_itself(tmp_path, monkeypatch):
+    # No person step: a base hermes-realms built is reused on first use.
+    import json as _json
+    from claude_realms import server as server_module
+    from realms_core.setup_plan import base_present
+
+    hermes = tmp_path / "hermes"
+    base = hermes / "profiles" / "coder" / "plugin-data" / "hermes-realms" / "vm" / "base"
+    base.mkdir(parents=True)
+    (base / "disk.qcow2").write_bytes(b"qcow" * 1024)
+    (base / "base.json").write_text(_json.dumps({"built_at": 1.0, "iso": "omarchy-4.0.3.iso", "generation": "b" * 32}))
+    home = tmp_path / "home"
+    monkeypatch.setenv("HERMES_HOME", str(hermes))
+    monkeypatch.setenv("REALMS_HOME", str(home))
+    monkeypatch.setattr("realms_core.install_driver.current_driver", lambda home: {"version": "0.0.0"})
+    realm_server = server_module.RealmServer()
+    service = realm_server.service
+    service.kind = "omarchy-vm"
+    # The host may lack KVM or systemd; only the base step matters here.
+    monkeypatch.setattr(service, "setup_status", lambda kind=None: {
+        "missing": [], "blockers": [], "steps": ["build the Omarchy base image"]})
+    anyio.run(realm_server._auto_setup, service)
+    assert base_present(home)
+    job = realm_server.jobs.get("omarchy-base")
+    assert job["state"] == "done" and job["reused"] == str(base)
+
+
+def test_setup_refusal_reports_the_running_build(tmp_path, monkeypatch):
+    from claude_realms import server as server_module
+
+    monkeypatch.setenv("REALMS_HOME", str(tmp_path))
+    realm_server = server_module.RealmServer()
+    message = "Realm setup required: build the Omarchy base image (realm action 'setup' starts it)."
+    assert realm_server._setup_refusal(message) == message
+    realm_server.jobs._jobs["omarchy-base"] = {"name": "omarchy-base", "state": "running",
+                                               "started_at": 0.0, "reused": None, "log": []}
+    told = realm_server._setup_refusal(message)
+    assert "being set up now" in told and "Nothing is needed from the person" in told

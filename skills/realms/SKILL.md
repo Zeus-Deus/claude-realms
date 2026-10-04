@@ -51,12 +51,19 @@ Honor a kind the person asked for. Otherwise pick what the test needs and say wh
 
 ## Setup and failures
 
-The computer-use driver installs itself on first use; just call the tool you
-need and wait. If a tool still says setup is required, tell the person exactly
-what is missing: system packages need them to run the printed `sudo pacman ...`
-command, and the Omarchy VM's base image comes from `/realm setup omarchy`
-(it reuses one hermes-realms already built, or downloads ~5 GB). Never install
-system packages yourself, and never fall back to their real desktop.
+Setup that needs no root happens by itself: the first desktop call installs
+the verified computer-use driver, and the Omarchy VM's base image is built on
+first use (or with `realm` `action: "setup"`, `kind: "omarchy"`). It reuses a
+base hermes-realms already built on this machine (a quick local copy), else
+downloads the signed ISO (~5 GB) and installs it, which takes a while. Do it
+yourself; don't ask the person to run it. While the `omarchy-base` job runs,
+tell the person once what is happening, follow it with `realm` status, and
+continue when it is done. Report only what the tool output says about it.
+
+What only the person can provide: system packages (the printed
+`sudo pacman ...` command), KVM access, an `~/.ssh/id_ed25519` key pair. Tell
+them exactly what is missing. Never install system packages yourself, and
+never fall back to their real desktop.
 
 `realm` `action: "list"` shows kept realms and VM disks with their sizes.
 Deleting them is the person's call (`/realm delete ID`, `/realm clean`); suggest

@@ -2,8 +2,9 @@
 
 Nothing here installs system packages: that needs root, and the person runs
 the printed command themselves (``! sudo pacman ...`` in Claude Code). The
-driver installs into the plugin's data home without root; the Omarchy base
-image is a long, explicit download+install the person starts with
+driver installs into the plugin's data home without root, and so does the
+Omarchy base image: the agent's first use starts it (reusing a base
+hermes-realms built, else a long download+install), as does
 ``/realm setup omarchy``.
 """
 
@@ -58,11 +59,12 @@ def readiness(home, kind):
         except (OSError, ValueError, RuntimeError):
             has_base = False
         if not has_base:
-            steps.append("build the Omarchy base image: /realm setup omarchy (downloads the signed ISO, ~5 GB)")
+            steps.append("build the Omarchy base image (realm action 'setup' starts it: reuses a base hermes-realms "
+                         "built, otherwise downloads the signed ISO, ~5 GB)")
     else:
         missing = _missing(REALM_TOOLS)
     if driver is None:
-        steps.append("install the computer-use driver: /realm setup")
+        steps.append("install the computer-use driver: /realm setup (or realm action 'setup')")
     command = install_command(missing)
     if command:
         steps.insert(0, "install packages: " + command)

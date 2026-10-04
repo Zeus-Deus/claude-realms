@@ -35,8 +35,8 @@ the prompt. If system packages are missing, Claude shows you one command to run
 **Needs:** Linux x86-64 (or arm64), [uv](https://docs.astral.sh/uv/), Claude Code 2.1.287+, and
 `labwc xorg-xwayland wayvnc grim wlr-randr glib2 dbus at-spi2-core bubblewrap`.
 The Omarchy VM also needs `qemu-full edk2-ovmf mtools openssh socat jq`, KVM
-access, a systemd user session and an existing `~/.ssh/id_ed25519`. `/realm setup omarchy`
-reuses the base image hermes-realms already built on this machine (an instant
+access, a systemd user session and an existing `~/.ssh/id_ed25519`. The agent sets up
+the base image itself on first use (or `/realm setup omarchy`): it reuses the base image hermes-realms already built on this machine (an instant
 copy on btrfs), or else builds one from Omarchy's signed ISO (about 5 GB).
 
 ## Use
