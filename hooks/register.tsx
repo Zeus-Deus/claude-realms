@@ -75,10 +75,6 @@ let runningJobs = new Set<string>()
 // The terminal: Codemux (its browser pane hosts the full view) and the shape
 // of a text cell (height / width), which keeps the realm's 16:9 picture 16:9.
 let inCodemux = false
-// Inside herdr, which can carry pictures to a kitty/Ghostty terminal but is
-// not recognised by Claude Code's image check, and whether pictures were refused
-let inHerdr = false
-let imagesRefused = false
 let cellAspect = 2.1
 // The realm a Codemux browser pane already shows, so it opens once per realm
 let browserShownFor: string | null = null
@@ -348,7 +344,6 @@ async function onLine($: $, line: string) {
     // Only refusals that mean "this terminal shows no pictures" switch to
     // coloured cells; others (a redraw in flight, a busy surface) pass.
     if (result.deny && /draws no placeholder images|cannot read files on this machine|8-bit image id/.test(result.deny)) {
-      imagesRefused = true
       if (!modeLocked) setMode($, 'raster', result.deny)
     }
     return
@@ -619,7 +614,6 @@ export const register: Register = (on, pluginOptions) => {
       || Boolean(await $.env.get('CODEMUX_PANE_ID'))
     const aspect = option<number>('view_cell_aspect', 0)
     cellAspect = aspect >= 1 && aspect <= 4 ? aspect : inCodemux ? 2.4 : 2.1
-    inHerdr = Boolean(await $.env.get('HERDR_PANE_ID'))
     await $.command.register({
       name: 'realm',
       description: "This session's private Linux desktop: status, view, on/off, control, setup",
@@ -793,10 +787,8 @@ export const register: Register = (on, pluginOptions) => {
         <Text dimColor>
           {isControlled
             ? 'Click the picture, then type: keys and clicks go to the realm. Esc returns the keyboard.'
-            : mode === 'raster' && inHerdr && imagesRefused
-              ? 'Coloured-cell view. herdr can show the sharp picture: start Claude with CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1 (inside herdr on Ghostty or kitty).'
-              : mode === 'raster'
-              ? 'Coloured-cell view (this terminal draws no pictures; Ghostty or kitty show full pixels). Full view (f) opens it sharp.'
+            : mode === 'raster'
+              ? 'This terminal can only show a low-resolution preview (Ghostty and kitty show it sharp). Full view (f) opens it sharp in your browser.'
               : 'Live view of the realm. The agent works here, never on your screen.'}
         </Text>
         {controls}

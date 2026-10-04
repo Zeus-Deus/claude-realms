@@ -69,19 +69,20 @@ computer-use driver's own tools: screenshots, clicks, typing, scrolling, drag,
 window and accessibility inspection, etc. These are passed through exactly as the
 installed driver describes them, so new driver features show up without a plugin update.
 
-**Live view:** Claude Code draws real pixels only in terminals that speak the
-kitty graphics protocol and identify as kitty or Ghostty; there the Realm pane
-shows the realm's screen sharp and live. Everywhere else a terminal can only show
-text cells, so:
+**Live view:** the Realm pane shows the realm's screen live. How sharp it is
+depends on your terminal, because Claude Code only draws real pictures in
+terminals that support the kitty graphics protocol:
 
-- **In Codemux** (an xterm.js terminal, no picture support) the realm opens in a
-  **Codemux browser pane** instead: the full 1920x1080 desktop through noVNC,
-  sharp, with control. It opens by itself the first time a realm goes live.
-- **In other terminals** the pane shows a coloured-cell preview (2x2 area-averaged
-  pixels per cell: layout and windows, not readable text), and **Full view**
-  (`f`, or `/realm full`) opens the sharp view in your browser.
-- The "Watch the realm in" option (`auto` / `pane` / `browser`) overrides this;
-  `/realm view raster` always shows the cell preview.
+| Terminal | Realm pane |
+| --- | --- |
+| **Ghostty**, **kitty** | Sharp, full-resolution picture |
+| **Codemux** | Opens in a Codemux browser pane by itself (sharp, with control) |
+| Everything else (foot, Alacritty, WezTerm, GNOME Terminal, tmux, herdr, ...) | Low-resolution coloured blocks: you see the layout, not readable text |
+
+Wherever the pane is blurry, **Full view** (`f` in the pane, or `/realm full`)
+opens the same live desktop sharp in your normal browser. Nothing needs to be
+configured either way. The "Watch the realm in" option (`auto` / `pane` /
+`browser`) can make the browser the default.
 
 `Take control` (`t`) in the pane, or the noVNC view's own control, lets you click
 and type into the realm. The pane keeps the realm's 16:9 shape from the
