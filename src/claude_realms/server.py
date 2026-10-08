@@ -14,13 +14,14 @@ import sys
 import time
 
 import anyio
+import anyio.lowlevel
 from mcp import types
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
 
 from realms_core.lifecycle import RealmError
 
-from .drivers import DriverHub, DriverUnavailable, FILE_OUTPUT_PROPERTIES, expose, load_catalog
+from .drivers import DriverHub, DriverUnavailable, FILE_OUTPUT_PROPERTIES, expose, guarded, load_catalog
 from .host import ClaudeSettings, data_home, session_owner
 from .service import RealmOff, RealmService, SetupRequired, describe
 from .setup import Jobs
@@ -171,6 +172,14 @@ class RealmServer:
         return self.separate.get(agent, self.service) if agent else self.service
 
     async def call_tool(self, name, arguments, *, person=False):
+        result = await self._call_tool(name, arguments, person=person)
+        # A call the client cancelled meanwhile must end cancelled, not with a
+        # result: the MCP library already answered it, and a second answer
+        # fails an assertion that takes the whole server down.
+        await anyio.lowlevel.checkpoint()
+        return result
+
+    async def _call_tool(self, name, arguments, *, person=False):
         self._remember_session()
         arguments = dict(arguments or {})
         try:
@@ -429,7 +438,7 @@ class RealmServer:
             if "driver" in names:
                 await self.refresh_catalog()
 
-        self.task_group.start_soon(watch)
+        self.task_group.start_soon(guarded, "setup job watch", watch)
 
     async def driver(self, operation):
         from realms_core import install_driver
@@ -462,9 +471,9 @@ class RealmServer:
             async with anyio.create_task_group() as task_group:
                 self.task_group = task_group
                 self.hub = DriverHub(self.service, task_group)
-                task_group.start_soon(self._update_check)
-                task_group.start_soon(self._serve_control)
-                task_group.start_soon(self._retention)
+                task_group.start_soon(guarded, "driver update check", self._update_check)
+                task_group.start_soon(guarded, "control socket", self._serve_control)
+                task_group.start_soon(guarded, "retention", self._retention)
                 async with stdio_server() as (read, write):
                     await self.server.run(read, write, options)
                 task_group.cancel_scope.cancel()
@@ -489,10 +498,17 @@ class RealmServer:
                 blocks, failed = result, False
             return [block.text for block in blocks if block.type == "text"], failed
 
-        try:
-            await control.serve(handle, session_id=self.service.owner)
-        except OSError as exc:
-            log.warning("control socket unavailable: %s", exc)
+        # The pane and /realm reach the server only through this socket: if it
+        # ever fails, serve it again rather than leave the person without one.
+        delay = 1
+        while True:
+            try:
+                await control.serve(handle, session_id=self.service.owner)
+                return
+            except Exception as exc:  # noqa: BLE001 - logged, then served again
+                log.warning("control socket failed, restarting in %ds: %s", delay, exc)
+            await anyio.sleep(delay)
+            delay = min(delay * 2, 60)
 
     async def _retention(self):
         """Delete stopped workspaces nobody used for ``retention_days``."""
@@ -555,12 +571,19 @@ def main():
 
     signal.signal(signal.SIGTERM, terminate)
     signal.signal(signal.SIGHUP, terminate)
+    status = 0
     try:
         anyio.run(server.run)
     except KeyboardInterrupt:
         for separate in list(server.separate.values()):
             separate.shutdown()
         server.service.shutdown()
+    except BaseException:  # noqa: BLE001 - os._exit below would swallow it
+        # Claude Code keeps the server's stderr in its MCP log.
+        import traceback
+
+        traceback.print_exc()
+        status = 1
     finally:
         # The MCP library reads stdin in a worker thread that may still be
         # blocked in read(); a normal interpreter teardown then aborts while
@@ -571,7 +594,7 @@ def main():
                 stream.flush()
             except Exception:  # noqa: BLE001
                 pass
-        os._exit(0)
+        os._exit(status)
 
 
 if __name__ == "__main__":

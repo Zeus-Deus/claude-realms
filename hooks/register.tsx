@@ -126,7 +126,7 @@ async function locate($: $): Promise<Control | null> {
       return control
     }
   }
-  connectError = 'the realms server has not started yet (it starts with the session; /mcp shows its state)'
+  connectError = 'the realms server is not running (still starting, or it stopped: /mcp shows it and can reconnect plugin:realms:realms)'
   return null
 }
 
@@ -156,7 +156,16 @@ async function realm($: $, args: Record<string, unknown>): Promise<{ text: strin
   return { text: first, data, isError: Boolean(reply.isError) }
 }
 
-async function refresh($: $): Promise<Status | null> {
+// One status request at a time: polls that pile up behind a slow reply would
+// tie up the server's worker threads that the agent's own calls need.
+let refreshing: Promise<Status | null> | null = null
+
+function refresh($: $): Promise<Status | null> {
+  if (!refreshing) refreshing = refreshOnce($).finally(() => { refreshing = null })
+  return refreshing
+}
+
+async function refreshOnce($: $): Promise<Status | null> {
   try {
     const { data, isError } = await realm($, { action: 'status' })
     if (!isError && data && typeof data === 'object') status = data as Status

@@ -14,15 +14,31 @@ Omarchy VM). The launch shape is read from the driver's ``manifest``.
 
 from contextlib import AsyncExitStack
 import json
+import logging
 import os
 from pathlib import Path
 import secrets
 import shutil
+import subprocess
 import tempfile
 
 import anyio
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
+
+log = logging.getLogger("claude_realms")
+
+
+async def guarded(name, function, *args):
+    """Run a background task that may fail without taking the server down.
+
+    Every task shares the server's task group; an exception escaping one
+    cancels them all, the MCP connection included.
+    """
+    try:
+        await function(*args)
+    except Exception:  # noqa: BLE001 - logged; the session goes on
+        log.exception("%s failed", name)
 
 # Properties that make the driver write files inside its sandbox, which the
 # model could never read back. Results stay inline instead.
@@ -157,7 +173,9 @@ class DriverSession:
                 if serve is not None:
                     self._serve = await anyio.open_process(
                         [self.launcher, *serve], env=self.env,
-                        stdin=None, stdout=None, stderr=None)
+                        # stdout is the MCP channel to Claude Code: keep the
+                        # daemon off it; its own messages go to stderr.
+                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=None)
                     with anyio.fail_after(30):
                         while not self.socket.exists():
                             if self._serve.returncode is not None:
@@ -181,7 +199,10 @@ class DriverSession:
             raise
         finally:
             self.session = None
-            await self._stop_serve()
+            try:
+                await self._stop_serve()
+            except Exception as exc:  # noqa: BLE001 - a daemon already gone needs no stopping
+                log.warning("driver daemon cleanup: %s", exc)
 
     async def _stop_serve(self):
         process, self._serve = self._serve, None
@@ -207,7 +228,10 @@ class DriverSession:
     async def wait_ready(self):
         await self._ready.wait()
         if self._error is not None or self.session is None:
-            raise DriverUnavailable("computer-use driver did not start: " + str(self._error))
+            reason = str(self._error) or type(self._error).__name__
+            if isinstance(self._error, TimeoutError):
+                reason = "it did not answer in time (the desktop may be busy or still starting); try again"
+            raise DriverUnavailable("computer-use driver did not start: " + reason)
 
     async def call(self, name, arguments):
         if self.session is None:
@@ -256,7 +280,7 @@ class DriverHub:
                 cursor_theme=record.get("cursor_theme", config.cursor_theme),
                 permission_mode=service.settings.driver_permission_mode)
             self.sessions[record["id"]] = session
-            self.task_group.start_soon(session.run)
+            self.task_group.start_soon(guarded, "driver session " + str(record["id"]), session.run)
         await session.wait_ready()
         return session
 

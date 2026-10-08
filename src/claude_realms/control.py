@@ -100,7 +100,10 @@ async def serve(handler, *, session_id, task_status=anyio.TASK_STATUS_IGNORED):
                 reply = {"texts": texts, "isError": is_error}
             except Exception as exc:  # noqa: BLE001 - reported to the person
                 reply = {"texts": [type(exc).__name__ + ": " + str(exc)], "isError": True}
-            await stream.send(json.dumps(reply, default=str).encode() + b"\n")
+            try:
+                await stream.send(json.dumps(reply, default=str).encode() + b"\n")
+            except (anyio.BrokenResourceError, anyio.ClosedResourceError, OSError):
+                pass  # the client gave up waiting; nobody is left to tell
 
     try:
         task_status.started()
