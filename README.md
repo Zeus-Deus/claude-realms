@@ -5,14 +5,7 @@ it gets a desktop of its own, a lightweight **realm** or a full **Omarchy VM**,
 and never touches your screen, mouse or clipboard. You watch it live next to the
 conversation and can take over at any time.
 
-```
-┌ conversation ───────────────────────────┬ Realm r-27ce…  1920x1080 · agent has control ┐
-│ ❯ test the settings dialog of my app     │                                              │
-│ ● realm_launch ./build/myapp             │     (the realm's screen, live)               │
-│ ● click (412, 230)                       │                                              │
-│ ● get_desktop_state  ✓ dialog opened     │ [ Take control ] [ Full view ] [ Stop ]      │
-└──────────────────────────────────────────┴──────────────────────────────────────────────┘
-```
+![Claude testing the Omarchy VM in Ghostty, with the live Realm pane on the right](docs/screenshot.png)
 
 ## Install
 
@@ -33,9 +26,24 @@ claude plugin uninstall realms@realms && claude plugin marketplace remove realms
 This removes the plugin and everything it stored: realm homes, VM disks and the
 computer-use driver.
 
+## How it works
+
+Installing adds four things to Claude Code:
+
+- an **MCP server** with the `realm` tools and the computer-use tools (look,
+  click, type) that act inside the realm
+- the **Realm pane** and the `/realm` command, so you can watch and take over
+- a **skill** that tells Claude when to use a realm and how
+- a **guard** that keeps Claude's shell commands off your own desktop while a
+  realm is live
+
+On first use it sets up what it needs by itself: its Python environment, the
+computer-use driver and, for the VM, the Omarchy image. All of it lives in the
+plugin's own data folder, which the uninstall command removes.
+
 ## Requirements
 
-- Linux (x86-64 or arm64), Claude Code 2.1.287 or newer, and [uv](https://docs.astral.sh/uv/)
+- Linux (x86-64 or arm64) and Claude Code 2.1.287 or newer
 - `labwc xorg-xwayland wayvnc grim wlr-randr glib2 dbus at-spi2-core bubblewrap`
 - For the Omarchy VM, also: `qemu-full edk2-ovmf mtools openssh socat jq`, KVM,
   a systemd user session and an existing `~/.ssh/id_ed25519`. The VM image
