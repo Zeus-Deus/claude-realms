@@ -181,3 +181,27 @@ def test_setup_refusal_reports_the_running_build(tmp_path, monkeypatch):
                                                "started_at": 0.0, "reused": None, "log": []}
     told = realm_server._setup_refusal(message)
     assert "being set up now" in told and "Nothing is needed from the person" in told
+
+
+def test_vm_commands_start_in_the_desktop_users_home(tmp_path):
+    # ssh lands in /root, which the desktop user cannot enter: a terminal
+    # launched from there exits at once.
+    import subprocess
+    from types import SimpleNamespace
+
+    from claude_realms.service import RealmService
+
+    service = RealmService(tmp_path, "claude-vm-cwd", ClaudeSettings())
+    service._vm = SimpleNamespace(guest_user=lambda _id: "desktop")
+    home = tmp_path / "home"
+    (home / "project").mkdir(parents=True)
+
+    def run(cwd):
+        argv = service._as_desktop_user({"id": "v-x"}, "pwd; echo after", cwd)
+        assert argv[:4] == ["runuser", "-u", "desktop", "--"]
+        return subprocess.run(argv[4:], capture_output=True, text=True, env={"HOME": str(home), "PATH": "/usr/bin:/bin"})
+
+    assert run(None).stdout.splitlines() == [str(home), "after"]
+    assert run("project").stdout.splitlines() == [str(home / "project"), "after"]
+    missing = run("nowhere")
+    assert missing.returncode != 0 and "after" not in missing.stdout

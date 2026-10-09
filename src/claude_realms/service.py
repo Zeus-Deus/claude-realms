@@ -228,7 +228,8 @@ class RealmService:
         timeout = max(1, min(float(timeout or 60), 600))
         record = self.ensure(agent=True)
         if self.kind == "omarchy-vm":
-            return self.vm.guest_run(record["id"], self._as_desktop_user(record, command), timeout=timeout)
+            return self.vm.guest_run(record["id"], self._as_desktop_user(record, command, cwd),
+                                     timeout=timeout)
         env = self.manager.env(record["id"])
         workdir = cwd or env.get("HOME")
         job = self.manager.exec(record["id"], ["/bin/bash", "-lc", command], cwd=workdir,
@@ -243,7 +244,7 @@ class RealmService:
         record = self.ensure(agent=True)
         if self.kind == "omarchy-vm":
             line = "setsid -f " + shlex.join(command) + " >/dev/null 2>&1 </dev/null"
-            result = self.vm.guest_run(record["id"], self._as_desktop_user(record, line), timeout=30)
+            result = self.vm.guest_run(record["id"], self._as_desktop_user(record, line, cwd), timeout=30)
             if result["returncode"] != 0:
                 raise RealmError("could not start the program in the guest: " + result["stderr"][-500:])
             return {"started": command}
@@ -251,12 +252,18 @@ class RealmService:
         job = self.manager.exec(record["id"], list(command), cwd=cwd or env.get("HOME"), wait=False)
         return {"started": command, "job_id": job["job_id"], "pid": job["pid"]}
 
-    def _as_desktop_user(self, record, line):
-        """argv running a shell line as the guest's desktop user, on its session."""
+    def _as_desktop_user(self, record, line, cwd=None):
+        """argv running a shell line as the guest's desktop user, on its session.
+
+        It starts in that user's home (or ``cwd`` in the guest): ssh lands in
+        /root, which the desktop user cannot enter, and programs started there
+        fail on their first file access.
+        """
         from realms_core.vm_launch import guest_shell_init
 
         user = self.vm.guest_user(record["id"])
-        return ["runuser", "-u", user, "--", "bash", "-lc", guest_shell_init() + line]
+        cd = "cd ~ || exit; " + ("cd " + shlex.quote(cwd) + " || exit; " if cwd else "")
+        return ["runuser", "-u", user, "--", "bash", "-lc", guest_shell_init() + cd + line]
 
     def push(self, source, destination=None):
         if self.kind != "omarchy-vm":

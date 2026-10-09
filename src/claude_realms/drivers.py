@@ -177,10 +177,10 @@ class DriverSession:
                         # daemon off it; its own messages go to stderr.
                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=None)
                     with anyio.fail_after(30):
-                        while not self.socket.exists():
+                        while not await self._daemon_answers():
                             if self._serve.returncode is not None:
                                 raise DriverUnavailable("driver daemon exited during startup")
-                            await anyio.sleep(0.05)
+                            await anyio.sleep(0.1)
                 params = StdioServerParameters(command=self.launcher, args=self._mcp_args(), env=self.env)
                 read, write = await stack.enter_async_context(
                     stdio_client(params, errlog=open(os.devnull, "w")))
@@ -203,6 +203,18 @@ class DriverSession:
                 await self._stop_serve()
             except Exception as exc:  # noqa: BLE001 - a daemon already gone needs no stopping
                 log.warning("driver daemon cleanup: %s", exc)
+
+    async def _daemon_answers(self):
+        """``status --socket`` exits 0 once the daemon accepts connections.
+
+        Not the socket file: an Omarchy VM's daemon listens inside the guest,
+        so no socket ever appears on the host.
+        """
+        with anyio.move_on_after(2):
+            probe = await anyio.run_process([self.launcher, "status", "--socket", str(self.socket)],
+                                            env=self.env, check=False)
+            return probe.returncode == 0
+        return False
 
     async def _stop_serve(self):
         process, self._serve = self._serve, None
