@@ -9,9 +9,24 @@ data="${REALMS_HOME:-${CLAUDE_PLUGIN_DATA:-$fallback}}"
 case "$data" in *'${'*|'') data="$fallback" ;; esac
 export REALMS_HOME="$data"
 mkdir -p "$data" && chmod 700 "$data"
-if ! command -v uv >/dev/null 2>&1; then
-  echo "claude-realms needs uv to set up its Python environment: https://docs.astral.sh/uv/" >&2
-  exit 1
+uv=$(command -v uv || true)
+if [ -z "$uv" ]; then
+  # No uv on this machine: fetch it from PyPI once, into the data directory
+  # (removed with the plugin), so installing the plugin is all it takes.
+  # stdout is the MCP channel, so everything here reports on stderr.
+  uv="$data/bin/uv"
+  if [ ! -x "$uv" ]; then
+    staging=$(mktemp -d "$data/.uv-XXXXXX")
+    if python3 -m venv "$staging/env" >&2 &&
+       "$staging/env/bin/python" -m pip install --quiet --disable-pip-version-check uv >&2; then
+      mkdir -p "$data/bin" && cp "$staging/env/bin/uv" "$staging/uv" && mv -f "$staging/uv" "$uv"
+    fi
+    rm -rf "$staging"
+  fi
+  if [ ! -x "$uv" ]; then
+    echo "claude-realms could not set up uv (needs python3 with venv and network access); install uv: https://docs.astral.sh/uv/" >&2
+    exit 1
+  fi
 fi
 export UV_PROJECT_ENVIRONMENT="$data/venv"
-exec uv run --project "$root" --frozen --no-dev --quiet python -P -m claude_realms.server
+exec "$uv" run --project "$root" --frozen --no-dev --quiet python -P -m claude_realms.server
